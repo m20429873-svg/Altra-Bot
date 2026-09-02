@@ -1,0 +1,643 @@
+const {
+  Client,
+  GatewayIntentBits,
+  PermissionsBitField,
+  ChannelType
+} = require("discord.js");
+
+// ===============================
+// إعداد البوت
+// ===============================
+
+const TOKEN = process.env.DISCORD_TOKEN;
+
+if (!TOKEN) {
+  console.error("❌ DISCORD_TOKEN غير موجود في Railway!");
+  process.exit(1);
+}
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
+  ]
+});
+
+// ===============================
+// قواعد البيانات المؤقتة
+// ===============================
+
+const points = new Map();
+const warnings = new Map();
+const attendance = new Map();
+
+function getPoints(id) {
+  return points.get(id) || 0;
+}
+
+function setPoints(id, amount) {
+  points.set(id, Math.max(0, amount));
+}
+
+function getWarnings(id) {
+  return warnings.get(id) || 0;
+}
+
+// ===============================
+// تشغيل البوت
+// ===============================
+
+client.once("ready", () => {
+  console.log(`✅ Altra-Bot Online: ${client.user.tag}`);
+  console.log("🤖 جميع أوامر ! جاهزة!");
+});
+
+// ===============================
+// الأوامر
+// ===============================
+
+client.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
+  if (!message.guild) return;
+
+  const content = message.content.trim();
+
+  if (!content.startsWith("!")) return;
+
+  const args = content.slice(1).trim().split(/\s+/);
+  const command = args.shift()?.toLowerCase();
+
+  if (!command) return;
+
+  try {
+
+    // =================================
+    // !بنق
+    // =================================
+
+    if (command === "بنق" || command === "ping") {
+      return message.reply(
+        `🏓 Pong!\n⚡ سرعة البوت: **${client.ws.ping}ms**`
+      );
+    }
+
+    // =================================
+    // !مساعدة
+    // =================================
+
+    if (command === "مساعدة" || command === "اوامر") {
+      return message.reply(`
+🤖 **Altra-Bot — قائمة الأوامر**
+
+👤 **أوامر الأعضاء**
+!نقاط
+!راتب
+!كليم
+!رتبتي
+!احصائياتي
+
+🎫 **التذاكر**
+!تذكرة
+!اغلاق
+!اضافة @عضو
+!ازالة @عضو
+
+🏆 **النقاط**
+!توب
+
+🛡️ **الإدارة**
+!اعطاء-نقاط @عضو 10
+!خصم-نقاط @عضو 10
+!تصفير-نقاط @عضو
+!تحذير @عضو
+!ترقية @عضو
+!تنزيل @عضو
+
+📋 **الحضور**
+!حضور
+!غياب
+
+⚙️ **أخرى**
+!مساعدة
+!بنق
+`);
+    }
+
+    // =================================
+    // !نقاط
+    // =================================
+
+    if (command === "نقاط") {
+      const amount = getPoints(message.author.id);
+
+      return message.reply(
+        `⭐ **${message.author.username}**\nنقاطك: **${amount}**`
+      );
+    }
+
+    // =================================
+    // !راتب
+    // =================================
+
+    if (command === "راتب") {
+      const amount = getPoints(message.author.id);
+
+      const salary = amount * 100;
+
+      return message.reply(
+        `💰 **راتبك الحالي**\n\n⭐ النقاط: **${amount}**\n💵 الراتب: **${salary}**`
+      );
+    }
+
+    // =================================
+    // !كليم
+    // =================================
+
+    if (command === "كليم" || command === "claim") {
+      const amount = getPoints(message.author.id);
+
+      if (amount <= 0) {
+        return message.reply("❌ ليس لديك نقاط كافية لاستلام راتب.");
+      }
+
+      const salary = amount * 100;
+
+      setPoints(message.author.id, 0);
+
+      return message.reply(
+        `💰 تم استلام راتبك!\n\n💵 المبلغ: **${salary}**\n⭐ تم تصفير نقاطك.`
+      );
+    }
+
+    // =================================
+    // !رتبتي
+    // =================================
+
+    if (command === "رتبتي") {
+      const amount = getPoints(message.author.id);
+
+      let rank = "عضو";
+
+      if (amount >= 1000) rank = "🏆 إداري متقدم";
+      else if (amount >= 500) rank = "⭐ إداري";
+      else if (amount >= 250) rank = "🛡️ مشرف";
+      else if (amount >= 100) rank = "📋 مساعد";
+      else if (amount >= 50) rank = "🔰 متدرب";
+
+      return message.reply(
+        `🏅 **رتبتك الحالية:** ${rank}\n⭐ نقاطك: **${amount}**`
+      );
+    }
+
+    // =================================
+    // !احصائياتي
+    // =================================
+
+    if (command === "احصائياتي") {
+      const pts = getPoints(message.author.id);
+      const warn = getWarnings(message.author.id);
+      const status = attendance.get(message.author.id) || "غير مسجل";
+
+      return message.reply(`
+📊 **إحصائياتك**
+
+⭐ النقاط: **${pts}**
+⚠️ التحذيرات: **${warn}**
+📋 الحالة: **${status}**
+`);
+    }
+
+    // =================================
+    // !اعطاء-نقاط
+    // =================================
+
+    if (command === "اعطاء-نقاط") {
+
+      if (
+        !message.member.permissions.has(
+          PermissionsBitField.Flags.ManageGuild
+        )
+      ) {
+        return message.reply("❌ هذا الأمر للإدارة فقط.");
+      }
+
+      const user = message.mentions.users.first();
+      const amount = Number(args[1]);
+
+      if (!user || !Number.isInteger(amount) || amount <= 0) {
+        return message.reply(
+          "❌ الاستخدام الصحيح:\n`!اعطاء-نقاط @عضو 10`"
+        );
+      }
+
+      const old = getPoints(user.id);
+      const total = old + amount;
+
+      setPoints(user.id, total);
+
+      return message.reply(
+        `✅ تم إعطاء ${user} **${amount} نقطة**.\n⭐ مجموع نقاطه: **${total}**`
+      );
+    }
+
+    // =================================
+    // !خصم-نقاط
+    // =================================
+
+    if (command === "خصم-نقاط") {
+
+      if (
+        !message.member.permissions.has(
+          PermissionsBitField.Flags.ManageGuild
+        )
+      ) {
+        return message.reply("❌ هذا الأمر للإدارة فقط.");
+      }
+
+      const user = message.mentions.users.first();
+      const amount = Number(args[1]);
+
+      if (!user || !Number.isInteger(amount) || amount <= 0) {
+        return message.reply(
+          "❌ الاستخدام الصحيح:\n`!خصم-نقاط @عضو 10`"
+        );
+      }
+
+      const old = getPoints(user.id);
+      const total = Math.max(0, old - amount);
+
+      setPoints(user.id, total);
+
+      return message.reply(
+        `✅ تم خصم **${amount} نقطة** من ${user}.\n⭐ نقاطه الآن: **${total}**`
+      );
+    }
+
+    // =================================
+    // !تصفير-نقاط
+    // =================================
+
+    if (command === "تصفير-نقاط") {
+
+      if (
+        !message.member.permissions.has(
+          PermissionsBitField.Flags.ManageGuild
+        )
+      ) {
+        return message.reply("❌ هذا الأمر للإدارة فقط.");
+      }
+
+      const user = message.mentions.users.first();
+
+      if (!user) {
+        return message.reply(
+          "❌ الاستخدام:\n`!تصفير-نقاط @عضو`"
+        );
+      }
+
+      setPoints(user.id, 0);
+
+      return message.reply(
+        `♻️ تم تصفير نقاط ${user}.`
+      );
+    }
+
+    // =================================
+    // !توب
+    // =================================
+
+    if (command === "توب") {
+
+      if (points.size === 0) {
+        return message.reply("📊 لا توجد نقاط مسجلة حتى الآن.");
+      }
+
+      const top = [...points.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10);
+
+      let text = "🏆 **أفضل الأعضاء بالنقاط**\n\n";
+
+      let rank = 1;
+
+      for (const [userId, amount] of top) {
+
+        const user = await client.users
+          .fetch(userId)
+          .catch(() => null);
+
+        text += `${rank}. ${user ? user.username : "عضو"} — ⭐ **${amount}**\n`;
+
+        rank++;
+      }
+
+      return message.reply(text);
+    }
+
+    // =================================
+    // !تحذير
+    // =================================
+
+    if (command === "تحذير") {
+
+      if (
+        !message.member.permissions.has(
+          PermissionsBitField.Flags.ManageGuild
+        )
+      ) {
+        return message.reply("❌ هذا الأمر للإدارة فقط.");
+      }
+
+      const user = message.mentions.users.first();
+
+      if (!user) {
+        return message.reply(
+          "❌ الاستخدام:\n`!تحذير @عضو`"
+        );
+      }
+
+      const old = getWarnings(user.id);
+      const total = old + 1;
+
+      warnings.set(user.id, total);
+
+      return message.reply(
+        `⚠️ تم إعطاء ${user} تحذير.\nعدد التحذيرات: **${total}**`
+      );
+    }
+
+    // =================================
+    // !ترقية
+    // =================================
+
+    if (command === "ترقية") {
+
+      if (
+        !message.member.permissions.has(
+          PermissionsBitField.Flags.ManageRoles
+        )
+      ) {
+        return message.reply("❌ تحتاج صلاحية إدارة الرتب.");
+      }
+
+      const user = message.mentions.members.first();
+
+      if (!user) {
+        return message.reply(
+          "❌ الاستخدام:\n`!ترقية @عضو`"
+        );
+      }
+
+      return message.reply(
+        `⬆️ تم تسجيل طلب ترقية ${user}.\n\n💡 نظام الرتب التلقائي سنضيفه بعد إنشاء رتب السيرفر.`
+      );
+    }
+
+    // =================================
+    // !تنزيل
+    // =================================
+
+    if (command === "تنزيل") {
+
+      if (
+        !message.member.permissions.has(
+          PermissionsBitField.Flags.ManageRoles
+        )
+      ) {
+        return message.reply("❌ تحتاج صلاحية إدارة الرتب.");
+      }
+
+      const user = message.mentions.members.first();
+
+      if (!user) {
+        return message.reply(
+          "❌ الاستخدام:\n`!تنزيل @عضو`"
+        );
+      }
+
+      return message.reply(
+        `⬇️ تم تسجيل طلب تنزيل رتبة ${user}.`
+      );
+    }
+
+    // =================================
+    // !حضور
+    // =================================
+
+    if (command === "حضور") {
+
+      attendance.set(message.author.id, "حاضر");
+
+      return message.reply(
+        "🟢 تم تسجيل **حضورك** بنجاح."
+      );
+    }
+
+    // =================================
+    // !غياب
+    // =================================
+
+    if (command === "غياب") {
+
+      attendance.set(message.author.id, "غائب");
+
+      return message.reply(
+        "🔴 تم تسجيل **غيابك**."
+      );
+    }
+
+    // =================================
+    // !تذكرة
+    // =================================
+
+    if (command === "تذكرة") {
+
+      const existing = message.guild.channels.cache.find(
+        channel =>
+          channel.type === ChannelType.GuildText &&
+          channel.name === `ticket-${message.author.id}`
+      );
+
+      if (existing) {
+        return message.reply(
+          `🎫 عندك تذكرة مفتوحة بالفعل: ${existing}`
+        );
+      }
+
+      const channel = await message.guild.channels.create({
+        name: `ticket-${message.author.id}`,
+        type: ChannelType.GuildText,
+
+        permissionOverwrites: [
+          {
+            id: message.guild.id,
+            deny: [
+              PermissionsBitField.Flags.ViewChannel
+            ]
+          },
+
+          {
+            id: message.author.id,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory
+            ]
+          },
+
+          {
+            id: client.user.id,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages,
+              PermissionsBitField.Flags.ReadMessageHistory,
+              PermissionsBitField.Flags.ManageChannels
+            ]
+          }
+        ]
+      });
+
+      await channel.send(`
+🎫 **تذكرة جديدة**
+
+مرحبًا ${message.author} 👋
+
+اكتب مشكلتك هنا وسيقوم فريق الإدارة بمساعدتك.
+
+🔒 لإغلاق التذكرة:
+\`!اغلاق\`
+`);
+
+      return message.reply(
+        `✅ تم إنشاء التذكرة: ${channel}`
+      );
+    }
+
+    // =================================
+    // !اغلاق
+    // =================================
+
+    if (command === "اغلاق") {
+
+      if (!message.channel.name.startsWith("ticket-")) {
+        return message.reply(
+          "❌ هذا الأمر يعمل داخل التذاكر فقط."
+        );
+      }
+
+      await message.reply(
+        "🔒 سيتم إغلاق التذكرة خلال **5 ثواني**."
+      );
+
+      setTimeout(async () => {
+        await message.channel.delete().catch(() => {});
+      }, 5000);
+
+      return;
+    }
+
+    // =================================
+    // !اضافة
+    // =================================
+
+    if (command === "اضافة") {
+
+      if (!message.channel.name.startsWith("ticket-")) {
+        return message.reply(
+          "❌ هذا الأمر يعمل داخل التذاكر فقط."
+        );
+      }
+
+      if (
+        !message.member.permissions.has(
+          PermissionsBitField.Flags.ManageChannels
+        )
+      ) {
+        return message.reply("❌ للإدارة فقط.");
+      }
+
+      const member = message.mentions.members.first();
+
+      if (!member) {
+        return message.reply(
+          "❌ الاستخدام:\n`!اضافة @عضو`"
+        );
+      }
+
+      await message.channel.permissionOverwrites.edit(
+        member.id,
+        {
+          ViewChannel: true,
+          SendMessages: true,
+          ReadMessageHistory: true
+        }
+      );
+
+      return message.reply(
+        `✅ تمت إضافة ${member} إلى التذكرة.`
+      );
+    }
+
+    // =================================
+    // !ازالة
+    // =================================
+
+    if (command === "ازالة") {
+
+      if (!message.channel.name.startsWith("ticket-")) {
+        return message.reply(
+          "❌ هذا الأمر يعمل داخل التذاكر فقط."
+        );
+      }
+
+      if (
+        !message.member.permissions.has(
+          PermissionsBitField.Flags.ManageChannels
+        )
+      ) {
+        return message.reply("❌ للإدارة فقط.");
+      }
+
+      const member = message.mentions.members.first();
+
+      if (!member) {
+        return message.reply(
+          "❌ الاستخدام:\n`!ازالة @عضو`"
+        );
+      }
+
+      await message.channel.permissionOverwrites.delete(
+        member.id
+      );
+
+      return message.reply(
+        `✅ تمت إزالة ${member} من التذكرة.`
+      );
+    }
+
+    // =================================
+    // أمر غير معروف
+    // =================================
+
+    return message.reply(
+      `❌ الأمر \`!${command}\` غير موجود.\nاكتب \`!مساعدة\` لرؤية جميع الأوامر.`
+    );
+
+  } catch (error) {
+
+    console.error("❌ حدث خطأ:");
+    console.error(error);
+
+    return message.reply(
+      "❌ حصل خطأ أثناء تنفيذ الأمر."
+    ).catch(() => {});
+  }
+});
+
+// ===============================
+// تسجيل الدخول
+// ===============================
+
+client.login(TOKEN);
